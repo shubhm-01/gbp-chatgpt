@@ -59,7 +59,7 @@ export function validateEnvironment(): Config {
     return {
         googleClientId: process.env.GOOGLE_CLIENT_ID || 'mock-client-id',
         googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || 'mock-client-secret',
-        googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/auth/callback',
+        googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || (process.env.RENDER_EXTERNAL_URL ? process.env.RENDER_EXTERNAL_URL.replace(/\/$/, '') + '/auth/callback' : 'http://localhost:3000/auth/callback'),
         port: parseInt(process.env.PORT || '3000'),
         host: process.env.HOST || 'localhost',
         mcpServerName: process.env.MCP_SERVER_NAME || 'google-business-review-mcp-server',
