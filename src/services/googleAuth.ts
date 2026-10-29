@@ -70,7 +70,10 @@ export class GoogleAuthService {
     async handleCallback(code: string, state?: string): Promise<GoogleOAuthTokens> {
         try {
             const { tokens } = await this.oauth2Client.getToken(code);
-            
+            if (!tokens.refresh_token) {
+                throw new Error('Google did not return a refresh token. Revoke this app access and retry OAuth setup.');
+            }
+
             this.tokens = {
                 access_token: tokens.access_token,
                 refresh_token: tokens.refresh_token,
@@ -81,13 +84,14 @@ export class GoogleAuthService {
             };
             
             this.oauth2Client.setCredentials(tokens);
+            saveTokens(this.tokens);
             
-            logger.info('OAuth authentication successful');
+            logger.info('OAuth authentication successful; tokens saved');
             return this.tokens;
             
         } catch (error) {
             logger.error('OAuth callback error:', error);
-            throw new Error('Failed to exchange authorization code for tokens');
+            throw error instanceof Error ? error : new Error('Failed to exchange authorization code for tokens');
         }
     }
     
