@@ -38,8 +38,7 @@ export function validateEnvironment(): Config {
     
     const requiredVars = [
         'GOOGLE_CLIENT_ID',
-        'GOOGLE_CLIENT_SECRET',
-        'GOOGLE_REDIRECT_URI'
+        'GOOGLE_CLIENT_SECRET'
     ];
     
     const missing: string[] = [];
