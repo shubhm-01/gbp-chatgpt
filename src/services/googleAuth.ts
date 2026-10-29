@@ -113,10 +113,9 @@ export class GoogleAuthService {
      * Get the authenticated OAuth2 client for making API calls
      */
     getAuthenticatedClient(): any {
-        if (!this.tokens || !this.isTokenValid()) {
-            throw new Error('Not authenticated or token expired');
-        }
-        
+        // Return the OAuth client even when tokens are not configured yet.
+        // This allows the MCP HTTP server to start; Google API operations still
+        // require valid OAuth tokens and will report auth errors until supplied.
         return this.oauth2Client;
     }
     
