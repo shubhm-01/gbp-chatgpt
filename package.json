@@ -8,6 +8,7 @@
     "google-business-review-mcp-server": "./build/index.js"
   },
   "scripts": {
+    "postinstall": "yarn build",
     "build": "tsc",
     "start": "node build/index.js",
     "start:mock": "cross-env NODE_ENV=development ENABLE_MOCK_MODE=true node build/index.js",
