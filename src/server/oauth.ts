@@ -231,8 +231,13 @@ export function registerOAuthEndpoints(app: Express): void {
         const grantType = typeof req.body?.grant_type === 'string' ? req.body.grant_type : '';
         const clientId = typeof req.body?.client_id === 'string' ? req.body.client_id : '';
         const resource = typeof req.body?.resource === 'string' ? req.body.resource : '';
-        if (!clientIsAllowed(clientId) || resource !== MCP_RESOURCE) {
-            console.warn('[OAuth] Token request rejected: invalid client or resource');
+        const allowedClient = clientIsAllowed(clientId);
+        // Some ChatGPT connection flows omit resource on the token request even
+        // though it was present on the authorization request. If supplied, it
+        // must match the exact protected-resource identifier.
+        const validResource = !resource || resource === MCP_RESOURCE;
+        if (!allowedClient || !validResource) {
+            console.warn(`[OAuth] Token request rejected: clientAllowed=${allowedClient}, resourcePresent=${Boolean(resource)}, resourceMatches=${resource === MCP_RESOURCE}`);
             res.set('Cache-Control', 'no-store').set('Pragma', 'no-cache')
                 .status(400).json({ error: 'invalid_request', error_description: 'Invalid client or resource.' });
             return;
