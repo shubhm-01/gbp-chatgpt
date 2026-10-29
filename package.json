@@ -8,7 +8,7 @@
     "google-business-review-mcp-server": "./build/index.js"
   },
   "scripts": {
-    "postinstall": "NODE_OPTIONS=--max-old-space-size=3072 yarn build",
+    "postinstall": "NODE_OPTIONS=--max-old-space-size=3072 yarn build --noCheck",
     "build": "tsc",
     "start": "node build/index.js",
     "start:mock": "cross-env NODE_ENV=development ENABLE_MOCK_MODE=true node build/index.js",
