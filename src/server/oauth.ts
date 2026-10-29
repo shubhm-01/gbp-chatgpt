@@ -47,7 +47,10 @@ function isChatGptMetadataClient(clientId: string): boolean {
 function clientIsAllowed(clientId: string, redirectUri?: string): boolean {
     if (isChatGptMetadataClient(clientId)) return !!redirectUri && isChatGptRedirect(redirectUri);
     const client = registeredClients.get(clientId);
-    return !!client && (!redirectUri || client.redirectUris.includes(redirectUri));
+    if (client) return !redirectUri || client.redirectUris.includes(redirectUri);
+    // DCR registrations are ephemeral on this single-instance service; retain the
+    // high-entropy issued ID shape across restarts while still restricting redirects.
+    return /^[0-9a-f]{48}$/.test(clientId) && (!redirectUri || isChatGptRedirect(redirectUri));
 }
 
 function escapeHtml(value: string): string {
