@@ -311,6 +311,21 @@ export class McpServer {
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         await this.server.connect(transport);
         app.all('/mcp', async (req, res) => {
+            // Require a shared bearer token for every remote MCP request.
+            // Configure MCP_AUTH_TOKEN in the hosting environment; never expose the endpoint unauthenticated.
+            const configuredToken = process.env.MCP_AUTH_TOKEN;
+            const authorization = req.header('authorization') || '';
+            const suppliedToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+            if (!configuredToken) {
+                res.status(503).json({ error: 'MCP endpoint is not configured securely. Set MCP_AUTH_TOKEN in the service environment.' });
+                return;
+            }
+            const supplied = Buffer.from(suppliedToken);
+            const expected = Buffer.from(configuredToken);
+            if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+                res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: 'Unauthorized' });
+                return;
+            }
             try {
                 await transport.handleRequest(req, res, req.body);
             } catch (error) {
