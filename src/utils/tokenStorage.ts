@@ -17,6 +17,20 @@ const TOKENS_FILE = join(__dirname, '../../.tokens.json');
  */
 export function loadTokens(): GoogleOAuthTokens | null {
     try {
+        // Render's filesystem is ephemeral across deploys; prefer the secret env var
+        // for a durable refresh token when one has been configured.
+        const refreshToken = process.env.GOOGLE_REFRESH_TOKEN?.trim();
+        if (refreshToken) {
+            return {
+                access_token: '',
+                refresh_token: refreshToken,
+                scope: 'https://www.googleapis.com/auth/business.manage',
+                token_type: 'Bearer',
+                expires_in: 0,
+                expires_at: 0
+            };
+        }
+
         if (!existsSync(TOKENS_FILE)) {
             logger.debug('No token file found');
             return null;
