@@ -6,6 +6,7 @@ import { McpServer as BaseMcpServer } from '@modelcontextprotocol/sdk/server/mcp
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express from 'express';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
 
 import { getConfig } from '../utils/config.js';
@@ -215,6 +216,97 @@ export class McpServer {
     async startHttp(port: number): Promise<void> {
         const app = express();
         app.use(express.json());
+        app.use(express.urlencoded({ extended: false }));
+
+        // OAuth state is short-lived and single-use to prevent callback CSRF.
+        const pendingOAuthStates = new Map<string, number>();
+
+        app.get('/auth', (_req, res) => {
+            res.type('html').send(
+                '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+                '<title>Google Business Profile connection</title></head><body style="font:16px system-ui;max-width:620px;margin:48px auto;padding:0 20px">' +
+                '<h1>Connect Google Business Profile</h1><p>Enter the setup key configured in Render to continue to Google authorization.</p>' +
+                '<form action="/auth/start" method="post"><label>Setup key<br><input type="password" name="key" required autocomplete="current-password" style="width:100%;padding:12px;margin:8px 0 16px;box-sizing:border-box"></label>' +
+                '<button type="submit" style="padding:12px 18px">Continue to Google</button></form></body></html>'
+            );
+        });
+
+        app.post('/auth/start', (req, res) => {
+            const configuredKey = process.env.GOOGLE_OAUTH_SETUP_KEY;
+            const suppliedKey = typeof req.body?.key === 'string' ? req.body.key : '';
+            if (!configuredKey) {
+                res.status(503).type('text').send('OAuth setup is disabled. Add GOOGLE_OAUTH_SETUP_KEY in Render Environment first.');
+                return;
+            }
+            const supplied = Buffer.from(suppliedKey);
+            const expected = Buffer.from(configuredKey);
+            if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+                res.status(401).type('text').send('Incorrect setup key. Check GOOGLE_OAUTH_SETUP_KEY in Render.');
+                return;
+            }
+            if (!this.googleAuthService) {
+                res.status(503).type('text').send('Google OAuth is unavailable in mock mode.');
+                return;
+            }
+
+            const now = Date.now();
+            for (const [oldState, createdAt] of pendingOAuthStates.entries()) {
+                if (now - createdAt > 10 * 60 * 1000) pendingOAuthStates.delete(oldState);
+            }
+            const state = randomBytes(32).toString('hex');
+            pendingOAuthStates.set(state, now);
+            res.redirect(302, this.googleAuthService.getAuthUrl(state));
+        });
+
+        app.get('/auth/callback', async (req, res) => {
+            const googleError = typeof req.query.error === 'string' ? req.query.error : '';
+            if (googleError) {
+                res.status(400).type('text').send('Google authorization was cancelled or denied: ' + googleError);
+                return;
+            }
+
+            const code = typeof req.query.code === 'string' ? req.query.code : '';
+            const state = typeof req.query.state === 'string' ? req.query.state : '';
+            const createdAt = pendingOAuthStates.get(state);
+            if (!code || !state || !createdAt || Date.now() - createdAt > 10 * 60 * 1000) {
+                res.status(400).type('text').send('This OAuth session is invalid or expired. Open /auth and start again.');
+                return;
+            }
+            pendingOAuthStates.delete(state);
+
+            if (!this.googleAuthService) {
+                res.status(503).type('text').send('Google OAuth is unavailable in mock mode.');
+                return;
+            }
+
+            try {
+                const tokens = await this.googleAuthService.handleCallback(code, state);
+                if (!tokens.refresh_token) {
+                    res.status(500).type('text').send('Google did not return a refresh token. Revoke this app in your Google Account permissions, then retry OAuth setup.');
+                    return;
+                }
+                const refreshTokenHtml = tokens.refresh_token
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+                res.type('html').send(
+                    '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+                    '<title>Google authorization complete</title></head><body style="font:16px system-ui;max-width:760px;margin:48px auto;padding:0 20px">' +
+                    '<h1>Google authorization successful</h1><p>The service has received the refresh token. To preserve authentication across Render redeploys, add this value as the <b>GOOGLE_REFRESH_TOKEN</b> environment variable in Render.</p>' +
+                    '<p><b>Keep this token private.</b> Do not send it in chat or commit it to GitHub.</p><textarea readonly style="width:100%;min-height:90px;box-sizing:border-box;padding:12px">' +
+                    refreshTokenHtml + '</textarea><p>Open Render Dashboard → your service → Environment, add <code>GOOGLE_REFRESH_TOKEN</code>, save changes, then return to the service logs to confirm it restarts.</p>' +
+                    '</body></html>'
+                );
+            } catch (error) {
+                logger.error('Hosted Google OAuth callback failed:', error);
+                res.status(500).type('text').send(
+                    'Google authorization failed. Open /auth and retry. Check Render application logs for the error details.'
+                );
+            }
+        });
+
         app.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         await this.server.connect(transport);
