@@ -22,6 +22,7 @@ import { createListLocationsTool } from './tools/listLocations.js';
 import { createGetUnRepliedReviewsTool } from './tools/getReviews.js';
 import { createGenerateReplyTool } from './tools/generateReply.js';
 import { createPostReplyTool } from './tools/postReply.js';
+import { registerOAuthEndpoints, isValidMcpAccessToken, protectedResourceMetadataUrl } from './oauth.js';
 import { createGetReviewDayStatsTool } from './tools/getReviewDayStats.js';
 
 // Import resource implementations
@@ -217,6 +218,7 @@ export class McpServer {
         const app = express();
         app.use(express.json());
         app.use(express.urlencoded({ extended: false }));
+        registerOAuthEndpoints(app);
 
         // OAuth state is short-lived and single-use to prevent callback CSRF.
         const pendingOAuthStates = new Map<string, number>();
@@ -311,19 +313,13 @@ export class McpServer {
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         await this.server.connect(transport);
         app.all('/mcp', async (req, res) => {
-            // Require a shared bearer token for every remote MCP request.
-            // Configure MCP_AUTH_TOKEN in the hosting environment; never expose the endpoint unauthenticated.
-            const configuredToken = process.env.MCP_AUTH_TOKEN;
+            // Verify the OAuth access token issued by this server before exposing any tools.
             const authorization = req.header('authorization') || '';
             const suppliedToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-            if (!configuredToken) {
-                res.status(503).json({ error: 'MCP endpoint is not configured securely. Set MCP_AUTH_TOKEN in the service environment.' });
-                return;
-            }
-            const supplied = Buffer.from(suppliedToken);
-            const expected = Buffer.from(configuredToken);
-            if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-                res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: 'Unauthorized' });
+            if (!isValidMcpAccessToken(suppliedToken, process.env.MCP_AUTH_TOKEN)) {
+                res.status(401)
+                    .set('WWW-Authenticate', `Bearer resource_metadata="${protectedResourceMetadataUrl()}"`)
+                    .json({ error: 'Unauthorized', message: 'Authorize this MCP server with OAuth in ChatGPT.' });
                 return;
             }
             try {
