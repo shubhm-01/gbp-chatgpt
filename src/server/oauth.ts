@@ -119,6 +119,7 @@ export function registerOAuthEndpoints(app: Express): void {
     };
     const authorizationMetadata = {
         issuer: ISSUER,
+        authorization_response_iss_parameter_supported: true,
         authorization_endpoint: AUTHORIZATION_ENDPOINT,
         token_endpoint: TOKEN_ENDPOINT,
         registration_endpoint: REGISTRATION_ENDPOINT,
@@ -216,6 +217,8 @@ export function registerOAuthEndpoints(app: Express): void {
         const target = new URL(redirectUri);
         target.searchParams.set('code', code);
         target.searchParams.set('state', state);
+        // ChatGPT validates the authorization-server issuer on the callback.
+        target.searchParams.set('iss', ISSUER);
         res.redirect(302, target.toString());
     });
 
@@ -229,7 +232,9 @@ export function registerOAuthEndpoints(app: Express): void {
         const clientId = typeof req.body?.client_id === 'string' ? req.body.client_id : '';
         const resource = typeof req.body?.resource === 'string' ? req.body.resource : '';
         if (!clientIsAllowed(clientId) || resource !== MCP_RESOURCE) {
-            res.status(400).json({ error: 'invalid_request', error_description: 'Invalid client or resource.' });
+            console.warn('[OAuth] Token request rejected: invalid client or resource');
+            res.set('Cache-Control', 'no-store').set('Pragma', 'no-cache')
+                .status(400).json({ error: 'invalid_request', error_description: 'Invalid client or resource.' });
             return;
         }
 
@@ -250,7 +255,9 @@ export function registerOAuthEndpoints(app: Express): void {
                 res.status(400).json({ error: 'invalid_grant', error_description: 'PKCE verification failed.' });
                 return;
             }
-            res.json(issueTokenPair(secret, 'reviews:read reviews:write'));
+            console.info('[OAuth] Authorization-code exchange succeeded');
+            res.set('Cache-Control', 'no-store').set('Pragma', 'no-cache')
+                .json(issueTokenPair(secret, 'reviews:read reviews:write'));
             return;
         }
 
@@ -261,7 +268,9 @@ export function registerOAuthEndpoints(app: Express): void {
                 res.status(400).json({ error: 'invalid_grant', error_description: 'Refresh token is invalid or expired. Reconnect the plugin.' });
                 return;
             }
-            res.json(issueTokenPair(secret, typeof payload.scope === 'string' ? payload.scope : 'reviews:read reviews:write'));
+            console.info('[OAuth] Refresh-token exchange succeeded');
+            res.set('Cache-Control', 'no-store').set('Pragma', 'no-cache')
+                .json(issueTokenPair(secret, typeof payload.scope === 'string' ? payload.scope : 'reviews:read reviews:write'));
             return;
         }
 
